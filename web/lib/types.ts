@@ -35,6 +35,10 @@ export interface Target {
   slow_threshold_ms: number
   options: TargetOptions
   is_gateway: boolean
+  /** external device: monitored only, never affects location status or uptime */
+  is_device: boolean
+  /** manual order within a location (Settings → Targets) */
+  sort_order: number
   paused: boolean
   created_at: string
   state: TargetState

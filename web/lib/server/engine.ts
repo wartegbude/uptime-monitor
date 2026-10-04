@@ -56,11 +56,11 @@ export async function ingest(agent: Agent, results: ResultIn[]) {
   const agentWasOffline = agent.status === 'offline'
 
   const base = (t: Target) => ({ agent_id: agent.id, target_id: t.id })
-  const info = (t: Target) => ({ target_name: t.name, agent_name: agent.name, method_label: methodLabel(t.method), address: t.address })
+  const info = (t: Target) => ({ target_name: t.name, agent_name: agent.name, method_label: methodLabel(t.method), address: t.address, is_device: !!t.is_device })
 
   function locationCause(t: Target): string | null {
-    if (t.is_gateway) return null
-    const mine = targets.filter(x => x.agent_id === t.agent_id && !x.paused)
+    if (t.is_gateway || t.is_device) return null // a device failing says nothing about the internet
+    const mine = targets.filter(x => x.agent_id === t.agent_id && !x.paused && !x.is_device)
     const gw = mine.find(x => x.is_gateway)
     if (!gw) return null
     if (gw.state === 'down') return 'lan'
@@ -103,7 +103,7 @@ export async function ingest(agent: Agent, results: ResultIn[]) {
         open.set(t.id, inc); touchedInc.set(inc.id, inc)
         // other targets at this location that are already down get the location-level cause too
         if (inc.cause === 'isp' || inc.cause === 'lan') {
-          for (const o of open.values()) if (o.agent_id === agent.id && o.ended_at == null && o.cause !== inc.cause && o.target_id !== t.id && !byId.get(o.target_id!)?.is_gateway) { o.cause = inc.cause; touchedInc.set(o.id, o) }
+          for (const o of open.values()) if (o.agent_id === agent.id && o.ended_at == null && o.cause !== inc.cause && o.target_id !== t.id && !byId.get(o.target_id!)?.is_gateway && !byId.get(o.target_id!)?.is_device) { o.cause = inc.cause; touchedInc.set(o.id, o) }
         }
         if (!r.delayed) notifyDown(t, inc, at)
       } else if (t.state === 'down' && !r.delayed) {

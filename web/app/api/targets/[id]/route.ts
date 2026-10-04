@@ -20,6 +20,11 @@ export const PATCH = handle(async (req: Request, ctx: Ctx) => {
   const raw = await body<Record<string, unknown>>(req)
   const merged = targetInput.parse({ ...cur, ...raw })
   const patch: Record<string, unknown> = { ...merged }
+  // moved to another location: put it at the end of that location's list
+  if (merged.agent_id !== cur.agent_id) {
+    const last = (must(await db().from('targets').select('sort_order').eq('agent_id', merged.agent_id).order('sort_order', { ascending: false }).limit(1)) as { sort_order: number }[])[0]
+    patch.sort_order = (last?.sort_order ?? 0) + 1
+  }
   // a changed check definition starts a fresh state machine
   if (merged.method !== cur.method || merged.address !== cur.address || merged.agent_id !== cur.agent_id) {
     Object.assign(patch, { state: 'unknown', consec_fail: 0, first_fail_at: null, consec_slow: 0, slow_alerted: false })

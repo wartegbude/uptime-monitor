@@ -63,18 +63,20 @@ export function buildMessage(group: NotificationRow[], s: AppSettings): string {
   const t = (k: DictKey, v?: Record<string, string | number>) => translate(lang, k, v)
   const n = group[0], p = n.payload
   const dt = (iso: string) => fmtDTs(Date.parse(iso), lang, tz)
+  const dev = !!p.is_device
+  const devTag = dev ? ` · ${t('tgDevice')}` : ''
   switch (n.kind) {
     case 'down': {
       const loc = p.agent_name
       if (group.length === 1) {
-        return `🔴 <b>${t('tgDown')}</b> · ${h(p.target_name)} (${h(loc)})\n` +
+        return `${dev ? '🟠' : '🔴'} <b>${t('tgDown')}${devTag}</b> · ${h(p.target_name)} (${h(loc)})\n` +
           `${t('tgMethod')}: ${h(p.method_label)} · <code>${h(p.address)}</code>\n` +
           `${t('tgCause')}: ${h(causeText(lang, p.cause))}${p.error ? ` — ${h(p.error)}` : ''}\n` +
           `${t('tgSince')}: ${dt(p.started_at)}`
       }
       const cause = group.find(g => g.payload.cause === 'isp' || g.payload.cause === 'lan')?.payload.cause
       const since = group.map(g => g.payload.started_at).sort()[0]
-      return `🔴 <b>${t('tgDown')}</b> · ${h(loc)}: ${t('affected', { n: group.length })}\n` +
+      return `${dev ? '🟠' : '🔴'} <b>${t('tgDown')}${devTag}</b> · ${h(loc)}: ${t('affected', { n: group.length })}\n` +
         group.map(g => `• ${h(g.payload.target_name)} <code>${h(g.payload.address)}</code>`).join('\n') + '\n' +
         (cause ? `${t('tgCause')}: ${h(causeText(lang, cause))}\n` : '') +
         `${t('tgSince')}: ${dt(since)}`
@@ -89,10 +91,10 @@ export function buildMessage(group: NotificationRow[], s: AppSettings): string {
           : `• ${h(g.payload.target_name)} — ${d}`
       }).join('\n')
       const head = group.length === 1 ? `${h(p.target_name)} (${h(loc)})` : `${h(loc)}: ${t('affected', { n: group.length })}`
-      return `🟢 <b>${t('tgRec')}</b> · ${head}\n${lines}${late ? `\n<i>${t('tgLate')}</i>` : ''}`
+      return `🟢 <b>${t('tgRec')}${devTag}</b> · ${head}\n${lines}${late ? `\n<i>${t('tgLate')}</i>` : ''}`
     }
     case 'slow':
-      return `🟡 <b>${t('tgSlow')}</b> · ${h(p.target_name)} (${h(p.agent_name)})\n${fmtMs(p.response_ms)} (${t('tgThreshold')} ${p.threshold_ms} ms)`
+      return `🟡 <b>${t('tgSlow')}${devTag}</b> · ${h(p.target_name)} (${h(p.agent_name)})\n${fmtMs(p.response_ms)} (${t('tgThreshold')} ${p.threshold_ms} ms)`
     case 'agent_offline':
       return `⚫ <b>${t('tgOff')}</b> · ${h(p.agent_name)}\n${t('tgLastHb')}: ${dt(p.last_heartbeat_at)}`
     case 'agent_online': {
@@ -129,18 +131,23 @@ export async function dispatch(): Promise<{ sent: number; failed: number; skippe
   }
 
   const quiet = quietRemaining(s, now)
+  const muteLeft = s.mute.until ? Math.max(0, Date.parse(s.mute.until) - now) : 0
+  const hold = Math.max(quiet, muteLeft)
   const groups = new Map<string, NotificationRow[]>()
-  const skip: number[] = [], postpone: number[] = []
+  const skip: number[] = [], postpone: number[] = [], muted: number[] = []
   for (const n of pending) {
     const tog = KIND_TOGGLE[n.kind]
     if (tog && !s.alerts[tog]) { skip.push(n.id); continue }
-    if (quiet && NON_CRITICAL.has(n.kind)) { postpone.push(n.id); continue }
-    const key = n.kind === 'down' || n.kind === 'recovery' ? `${n.kind}:${n.agent_id}` : `one:${n.id}`
+    if (n.payload?.is_device && s.alerts.device === false) { skip.push(n.id); continue }
+    if (hold && NON_CRITICAL.has(n.kind)) { postpone.push(n.id); continue }
+    if (muteLeft && s.mute.all && n.kind !== 'test') { muted.push(n.id); continue } // /mute ... all: drop alerts during maintenance
+    const key = n.kind === 'down' || n.kind === 'recovery' ? `${n.kind}:${n.agent_id}:${n.payload?.is_device ? 'dev' : 'net'}` : `one:${n.id}`
     groups.set(key, [...(groups.get(key) || []), n])
   }
   await mark(skip, { status: 'skipped', error: 'alert_type_disabled' })
-  await mark(postpone, { next_attempt_at: new Date(now + quiet).toISOString() })
-  res.skipped += skip.length
+  await mark(postpone, { next_attempt_at: new Date(now + hold).toISOString() })
+  await mark(muted, { status: 'skipped', error: 'muted' })
+  res.skipped += skip.length + muted.length
 
   for (const g of groups.values()) {
     const r = await sendTelegram(token, chat, buildMessage(g, s))

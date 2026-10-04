@@ -144,7 +144,7 @@ svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .loc .diag{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 .diag span{font-size:12px;padding:2px 8px;border-radius:6px;background:var(--surface-2);display:inline-flex;gap:5px;align-items:center}
 .diag span svg.i{width:12px;height:12px;stroke-width:2.8}
-.diag .ok{color:var(--up)} .diag .bad{color:var(--down)} .diag .unk{color:var(--muted)}
+.diag .ok{color:var(--up)} .diag .bad{color:var(--down)} .diag .unk{color:var(--muted)} .diag .warn{color:var(--slow)}
 
 .targets{display:grid;grid-template-columns:1fr;gap:10px}
 @media (min-width:640px){.targets{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -333,3 +333,14 @@ a.nav-btn,a.bottom-link{text-decoration:none}
 .stat .v.skel{height:28px;width:70%}
 .skel-card{height:140px}
 .version{font-size:11px;color:var(--muted)}
+
+/* target reorder */
+.grip{display:grid;place-items:center;width:28px;height:40px;margin-left:-8px;color:var(--muted);cursor:grab;border-radius:6px;flex:none;touch-action:none}
+.grip:hover{background:var(--surface-2);color:var(--fg)}
+.grip:active{cursor:grabbing}
+.li.dragging{opacity:.45}
+.li.drop-before{box-shadow:inset 0 3px 0 var(--accent)}
+.li.drop-after{box-shadow:inset 0 -3px 0 var(--accent)}
+.order-btns{display:inline-flex;gap:2px}
+.order-btns .btn{width:32px;padding:0}
+@media (hover:none){.grip{display:none}}

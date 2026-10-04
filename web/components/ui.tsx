@@ -39,6 +39,10 @@ const P: Record<string, string> = {
   pulse: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
   refresh: '<path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/>',
   lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  chip: '<rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4"/>',
+  grip: '<circle cx="9" cy="6" r="1.3"/><circle cx="15" cy="6" r="1.3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><circle cx="9" cy="18" r="1.3"/><circle cx="15" cy="18" r="1.3"/>',
+  up: '<path d="M18 15l-6-6-6 6"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
   hourglass: '<path d="M6 2h12M6 22h12M7 2c0 5 10 5 10 10S7 17 7 22M17 2c0 5-10 5-10 10s10 5 10 10"/>',
 }
 export type IconName = keyof typeof P | string
@@ -66,8 +70,8 @@ export function LocPill({ s }: { s: LocState }) {
   return <span className={`pill ${cls}`}><Icon name={icon} />{t(key as never)}</span>
 }
 
-export const methodIcon = (t: Pick<Target, 'method' | 'is_gateway'>): IconName =>
-  t.is_gateway ? 'router' : t.method === 'http' ? 'monitor' : t.method === 'ping' ? 'pulse' : 'server'
+export const methodIcon = (t: Pick<Target, 'method' | 'is_gateway'> & { is_device?: boolean }): IconName =>
+  t.is_gateway ? 'router' : t.is_device ? 'chip' : t.method === 'http' ? 'monitor' : t.method === 'ping' ? 'pulse' : 'server'
 
 export function Switch({ checked, onChange, label, id }: { checked: boolean; onChange: (v: boolean) => void; label: string; id?: string }) {
   return (

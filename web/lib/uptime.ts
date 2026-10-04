@@ -29,11 +29,11 @@ export function unionLen(ivs: Iv[]): number {
   return tot
 }
 
-export function downIntervals(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway'>, incs: Incident[], a: number, b: number, now: number): Iv[] {
+export function downIntervals(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway'> & { is_device?: boolean }, incs: Incident[], a: number, b: number, now: number): Iv[] {
   const out: Iv[] = []
   for (const i of incs) {
     const hit = (i.kind === 'target_down' && i.target_id === t.id) ||
-      (i.kind === 'agent_offline' && i.agent_id === t.agent_id && i.cause === 'internet' && !t.is_gateway)
+      (i.kind === 'agent_offline' && i.agent_id === t.agent_id && i.cause === 'internet' && !t.is_gateway && !t.is_device)
     if (!hit) continue
     const c = clip([incStart(i), incEnd(i, now)], a, b)
     if (c) out.push(c)
@@ -53,7 +53,7 @@ export function noDataIntervals(t: Pick<Target, 'agent_id'>, incs: Incident[], a
 
 export interface UptimeResult { down: number; monitored: number; up: number | null }
 
-export function targetUptime(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway' | 'created_at'>, incs: Incident[], a: number, b: number, now: number): UptimeResult {
+export function targetUptime(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway' | 'created_at'> & { is_device?: boolean }, incs: Incident[], a: number, b: number, now: number): UptimeResult {
   const start = Math.max(a, Date.parse(t.created_at))
   const end = Math.min(b, now)
   if (end <= start) return { down: 0, monitored: 0, up: null }
@@ -64,7 +64,7 @@ export function targetUptime(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway' | 
 }
 
 /** Blocks for the uptime bar. cls: '' up, 'p' partly down, 'd' mostly down, 'n' no data. */
-export function uptimeBlocks(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway' | 'created_at'>, incs: Incident[], a: number, b: number, now: number, n: number) {
+export function uptimeBlocks(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway' | 'created_at'> & { is_device?: boolean }, incs: Incident[], a: number, b: number, now: number, n: number) {
   const w = (b - a) / n
   const out: { s: number; e: number; cls: '' | 'p' | 'd' | 'n'; down: number }[] = []
   for (let k = 0; k < n; k++) {
@@ -92,9 +92,22 @@ export type LocState = 'ok' | 'degraded' | 'down' | 'off' | 'pending'
 export function locationState(agent: Agent, targets: Target[]): LocState {
   if (agent.status === 'pending') return 'pending'
   if (agent.status !== 'online') return 'off'
-  const ts = targets.filter(t => t.agent_id === agent.id && !t.paused)
+  // external devices are monitored only: they never make a location degraded or down
+  const ts = targets.filter(t => t.agent_id === agent.id && !t.paused && !t.is_device)
   const ext = ts.filter(t => !t.is_gateway)
   if (ext.length && ext.every(t => t.state === 'down')) return 'down'
   if (ts.some(t => t.state === 'down' || t.state === 'slow')) return 'degraded'
   return 'ok'
+}
+
+/** Targets that count toward a location's status and uptime (everything except external devices). */
+export const coreTargets = <T extends { is_device?: boolean }>(ts: T[]) => ts.filter(t => !t.is_device)
+
+/** Display order: locations in creation order, then the manual order set in Settings → Targets. */
+export function byDisplayOrder<T extends { agent_id: string; sort_order?: number; created_at: string }>(targets: T[], agents: { id: string }[]): T[] {
+  const ai = new Map(agents.map((a, i) => [a.id, i]))
+  return targets.slice().sort((x, y) =>
+    (ai.get(x.agent_id) ?? 1e9) - (ai.get(y.agent_id) ?? 1e9) ||
+    (x.sort_order ?? 0) - (y.sort_order ?? 0) ||
+    x.created_at.localeCompare(y.created_at))
 }

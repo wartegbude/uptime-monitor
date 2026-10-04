@@ -2,6 +2,7 @@ import { db, must } from '@/lib/server/db'
 import { handle, json, requireUser } from '@/lib/server/http'
 import { parseRange, uuidOrNull } from '@/lib/server/range'
 import type { Agent, DashboardData, Incident, SeriesPoint, Target } from '@/lib/types'
+import { byDisplayOrder } from '@/lib/uptime'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,10 +15,10 @@ export const GET = handle(async (req: Request) => {
   const targetId = uuidOrNull(url.searchParams.get('target'))
 
   const agents = must(await db().from('agents').select('id,name,host,token_tail,status,last_heartbeat_at,heartbeat_timeout_sec,agent_version,created_at').order('created_at')) as Agent[]
-  let tq = db().from('targets').select('*').order('created_at')
+  let tq = db().from('targets').select('*').order('sort_order').order('created_at')
   if (loc) tq = tq.eq('agent_id', loc)
   if (targetId) tq = tq.eq('id', targetId)
-  const targets = must(await tq) as Target[]
+  const targets = byDisplayOrder(must(await tq) as Target[], agents)
 
   let iq = db().from('incidents').select('*')
     .lt('started_at', new Date(to).toISOString())

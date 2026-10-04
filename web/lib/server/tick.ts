@@ -78,7 +78,7 @@ export async function buildSummary(s: AppSettings, from: number, to: number): Pr
   const lang = s.language, tz = s.timezone
   const t = (k: Parameters<typeof translate>[1], v?: Record<string, string | number>) => translate(lang, k, v)
   const agents = (must(await db().from('agents').select('*').neq('status', 'revoked').order('name')) as Agent[])
-  const targets = must(await db().from('targets').select('*').order('name')) as Target[]
+  const targets = must(await db().from('targets').select('*').order('sort_order').order('created_at')) as Target[]
   const incs = must(await db().from('incidents').select('*').lt('started_at', new Date(to).toISOString())
     .or(`ended_at.is.null,ended_at.gt.${new Date(from).toISOString()}`).limit(2000)) as Incident[]
   // per-target response stats from raw results (accurate even before hourly rollups refresh)
@@ -91,9 +91,11 @@ export async function buildSummary(s: AppSettings, from: number, to: number): Pr
 
   const blocks = agents.map(a => {
     const ts = targets.filter(x => x.agent_id === a.id)
+    const core = ts.filter(x => !x.is_device) // external devices don't count toward location uptime
+    const coreIds = new Set(core.map(x => x.id))
     let down = 0, mon = 0
-    for (const x of ts) { const r = targetUptime(x, incs, from, to, to); down += r.down; mon += r.monitored }
-    const mine = incs.filter(i => i.agent_id === a.id)
+    for (const x of core) { const r = targetUptime(x, incs, from, to, to); down += r.down; mon += r.monitored }
+    const mine = incs.filter(i => i.agent_id === a.id && (i.kind === 'agent_offline' || (i.target_id != null && coreIds.has(i.target_id))))
     const longest = mine.reduce((m, i) => Math.max(m, Math.min(incEnd(i, to), to) - Math.max(incStart(i), from)), 0)
     const off = mine.filter(i => i.kind === 'agent_offline').reduce((sum, i) => sum + Math.max(0, Math.min(incEnd(i, to), to) - Math.max(incStart(i), from)), 0)
     const head = `<b>${esc(a.name)}</b> — ${mon ? fmtPct((1 - down / mon) * 100) : t('tgNone')} · ${t('tgDur')} ${fmtDur(down, lang)} · ${mine.length} ${t('tgIncidents')}` +
@@ -101,7 +103,8 @@ export async function buildSummary(s: AppSettings, from: number, to: number): Pr
     const lines = ts.map(x => {
       const st = stats.get(x.id)
       const avg = st?.avg ?? null, max = st?.max ?? null
-      return `  • ${esc(x.name)}: ${t('avg').toLowerCase()} ${fmtMs(avg)}, ${t('max').toLowerCase()} ${fmtMs(max)}`
+      const dev = x.is_device ? ` (${t('device')}, ${t('uptime').toLowerCase()} ${fmtPct((targetUptime(x, incs, from, to, to).up ?? 0) * 100)})` : ''
+      return `  • ${esc(x.name)}${dev}: ${t('avg').toLowerCase()} ${fmtMs(avg)}, ${t('max').toLowerCase()} ${fmtMs(max)}`
     })
     return [head, ...lines].join('\n')
   })

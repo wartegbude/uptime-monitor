@@ -5,7 +5,7 @@ import { useTheme } from 'next-themes'
 import { useI18n, useNow, useToast } from './providers'
 import { useMounted } from './Shell'
 import { api, copyText, Icon, methodIcon, Pill, Seg, Switch, type IconName } from './ui'
-import { fmtDur, fmtMs, methodLabel, ts } from '@/lib/format'
+import { fmtDT, fmtDur, fmtMs, methodLabel, ts } from '@/lib/format'
 import { liveState } from '@/lib/uptime'
 import type { Agent, Method, Target, TargetOptions } from '@/lib/types'
 import type { DictKey, Lang } from '@/lib/i18n'
@@ -50,13 +50,17 @@ function useLoad<T>(url: string) {
 function TargetsTab() {
   const { t, lang } = useI18n()
   const toast = useToast()
-  const { data: targets, reload } = useLoad<Target[]>('/api/targets')
+  const { data: targets, setData: setTargets, reload } = useLoad<Target[]>('/api/targets')
   const { data: agents } = useLoad<Agent[]>('/api/agents')
   const [form, setForm] = useState<Target | 'new' | null>(null)
   const [confirm, setConfirm] = useState<string | null>(null)
+  const drag = useRef<{ id: string; agent: string } | null>(null)
+  const [drop, setDrop] = useState<{ id: string; after: boolean } | null>(null)
+  const [dragging, setDragging] = useState<string | null>(null)
 
   if (!targets || !agents) return <div className="card skel skel-card" />
   const live = agents.filter(a => a.status !== 'revoked')
+  const ordered = (agentId: string) => targets.filter(x => x.agent_id === agentId).sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at))
 
   async function patch(tg: Target, p: Partial<Target>) {
     try { await api(`/api/targets/${tg.id}`, { method: 'PATCH', json: p }); toast(t('saved')); reload() }
@@ -66,28 +70,80 @@ function TargetsTab() {
     try { await api(`/api/targets/${tg.id}`, { method: 'DELETE' }); toast(t('targetDeleted')); setConfirm(null); reload() }
     catch (e) { toast(t('saveFailed', { e: (e as Error).message }), 'err') }
   }
+  /** Moves one target inside its location; saves the whole location's order. Optimistic, rolls back on error. */
+  async function move(agentId: string, id: string, to: number) {
+    const list = ordered(agentId)
+    const from = list.findIndex(x => x.id === id)
+    if (from < 0 || to < 0 || to >= list.length || from === to) return
+    const next = list.slice()
+    const [item] = next.splice(from, 1)
+    next.splice(to, 0, item)
+    const pos = new Map(next.map((x, i) => [x.id, i + 1]))
+    const before = targets
+    setTargets(targets!.map(x => (pos.has(x.id) ? { ...x, sort_order: pos.get(x.id)! } : x)))
+    try { await api('/api/targets/reorder', { method: 'POST', json: { agent_id: agentId, ids: next.map(x => x.id) } }) }
+    catch (e) {
+      setTargets(before)
+      toast((e as { status?: number }).status === 409 ? t('orderStale') : t('saveFailed', { e: (e as Error).message }), 'err')
+      reload()
+    }
+  }
+  function onDrop(agentId: string, overId: string, after: boolean) {
+    const d = drag.current
+    setDrop(null); setDragging(null); drag.current = null
+    if (!d || d.agent !== agentId || d.id === overId) return
+    const list = ordered(agentId)
+    const from = list.findIndex(x => x.id === d.id)
+    let to = list.findIndex(x => x.id === overId) + (after ? 1 : 0)
+    if (from < to) to -= 1
+    move(agentId, d.id, to)
+  }
 
   return (
     <section className="card">
-      <div className="card-h" style={{ paddingBottom: 12 }}><h2>{t('tab_targets')}</h2><span className="sub">{targets.length}</span>
+      <div className="card-h" style={{ paddingBottom: 4 }}><h2>{t('tab_targets')}</h2><span className="sub">{targets.length}</span>
         <div className="act"><button className="btn primary sm" disabled={!live.length} onClick={() => setForm('new')}><Icon name="plus" />{t('addTarget')}</button></div></div>
+      {targets.length > 1 && <p className="muted" style={{ margin: '0 16px 12px', fontSize: 12.5 }}>{t('dragHint')}</p>}
       {!live.length && <div className="empty"><Icon name="server" /><span>{t('emptyAgents')}</span></div>}
       <div className="list">
         {live.map(ag => {
-          const mine = targets.filter(x => x.agent_id === ag.id)
+          const mine = ordered(ag.id)
           return (
             <div key={ag.id}>
               <div className="group-h"><Icon name="server" />{ag.name} {ag.host && <span className="mono" style={{ fontWeight: 400 }}>{ag.host}</span>}</div>
               {!mine.length && <div className="li muted">{t('emptyTargets')}</div>}
-              {mine.map(tg => (
-                <div className="li" key={tg.id}>
+              {mine.map((tg, i) => (
+                <div key={tg.id} id={`row_${tg.id}`}
+                  className={`li${dragging === tg.id ? ' dragging' : ''}${drop?.id === tg.id ? (drop.after ? ' drop-after' : ' drop-before') : ''}`}
+                  onDragOver={e => {
+                    if (!drag.current || drag.current.agent !== ag.id) return
+                    e.preventDefault()
+                    const r = e.currentTarget.getBoundingClientRect()
+                    const after = e.clientY > r.top + r.height / 2
+                    if (drop?.id !== tg.id || drop.after !== after) setDrop({ id: tg.id, after })
+                  }}
+                  onDrop={e => { e.preventDefault(); onDrop(ag.id, tg.id, !!drop?.after) }}>
+                  {mine.length > 1 && (
+                    <span className="grip" draggable title={t('dragHint')} aria-hidden="true"
+                      onDragStart={e => {
+                        drag.current = { id: tg.id, agent: ag.id }
+                        setDragging(tg.id)
+                        e.dataTransfer.effectAllowed = 'move'
+                        e.dataTransfer.setData('text/plain', tg.id)
+                        const row = document.getElementById(`row_${tg.id}`)
+                        if (row) e.dataTransfer.setDragImage(row, 24, 24)
+                      }}
+                      onDragEnd={() => { drag.current = null; setDragging(null); setDrop(null) }}>
+                      <Icon name="grip" />
+                    </span>
+                  )}
                   <div className="main-c">
                     <div className="t"><Icon name={methodIcon(tg)} />{tg.name} <Pill s={liveState(tg, ag)} /></div>
                     <div className="meta">
                       <span><span className="chip">{methodLabel(tg.method)}</span> <span className="mono">{tg.address}</span></span>
                       <span>{t('every', { s: fmtDur(tg.interval_sec * 1000, lang) })}</span>
                       <span>{tg.fail_threshold}× → DOWN</span><span>&gt; {tg.slow_threshold_ms} ms</span>
-                      {tg.is_gateway && <span className="chip">{t('gateway')}</span>}
+                      {tg.is_gateway && <span className="chip">{t('gateway')}</span>}{tg.is_device && <span className="chip">{t('device')}</span>}
                     </div>
                   </div>
                   <div className="acts">
@@ -96,6 +152,10 @@ function TargetsTab() {
                         <button className="btn sm danger" onClick={() => del(tg)}>{t('yesDelete')}</button>
                         <button className="btn sm" onClick={() => setConfirm(null)}>{t('cancel')}</button></div>
                     ) : <>
+                      {mine.length > 1 && <span className="order-btns">
+                        <button className="btn sm" disabled={i === 0} onClick={() => move(ag.id, tg.id, i - 1)} aria-label={`${t('moveUp')}: ${tg.name}`} title={t('moveUp')}><Icon name="up" /></button>
+                        <button className="btn sm" disabled={i === mine.length - 1} onClick={() => move(ag.id, tg.id, i + 1)} aria-label={`${t('moveDown')}: ${tg.name}`} title={t('moveDown')}><Icon name="down" /></button>
+                      </span>}
                       <button className="btn sm" onClick={() => setForm(tg)}><Icon name="edit" />{t('edit')}</button>
                       <button className="btn sm" onClick={() => patch(tg, { paused: !tg.paused })}><Icon name={tg.paused ? 'play' : 'pause'} />{tg.paused ? t('resume') : t('pause')}</button>
                       <button className="btn sm icon danger" onClick={() => setConfirm(tg.id)} aria-label={t('delete')} title={t('delete')}><Icon name="trash" /></button>
@@ -114,7 +174,7 @@ function TargetsTab() {
 
 type FormState = {
   agent_id: string; name: string; method: Method; address: string; interval_sec: number; timeout_ms: number
-  fail_threshold: number; slow_threshold_ms: number; is_gateway: boolean; options: TargetOptions
+  fail_threshold: number; slow_threshold_ms: number; is_gateway: boolean; is_device: boolean; options: TargetOptions
 }
 const SLOW_DEFAULT: Record<Method, number> = { http: 1000, ping: 100, dns: 200 }
 const TIMEOUT_DEFAULT: Record<Method, number> = { http: 5000, ping: 2000, dns: 2000 }
@@ -129,8 +189,8 @@ function TargetForm({ initial, agents, onClose, onSaved }: { initial: Target | n
   const { t } = useI18n()
   const toast = useToast()
   const [f, setF] = useState<FormState>(() => initial
-    ? { agent_id: initial.agent_id, name: initial.name, method: initial.method, address: initial.address, interval_sec: initial.interval_sec, timeout_ms: initial.timeout_ms, fail_threshold: initial.fail_threshold, slow_threshold_ms: initial.slow_threshold_ms, is_gateway: initial.is_gateway, options: initial.options || {} }
-    : { agent_id: agents[0]?.id || '', name: '', method: 'ping', address: '8.8.8.8', interval_sec: 30, timeout_ms: 2000, fail_threshold: 2, slow_threshold_ms: 100, is_gateway: false, options: {} })
+    ? { agent_id: initial.agent_id, name: initial.name, method: initial.method, address: initial.address, interval_sec: initial.interval_sec, timeout_ms: initial.timeout_ms, fail_threshold: initial.fail_threshold, slow_threshold_ms: initial.slow_threshold_ms, is_gateway: initial.is_gateway, is_device: !!initial.is_device, options: initial.options || {} }
+    : { agent_id: agents[0]?.id || '', name: '', method: 'ping', address: '8.8.8.8', interval_sec: 30, timeout_ms: 2000, fail_threshold: 2, slow_threshold_ms: 100, is_gateway: false, is_device: false, options: {} })
   const [errs, setErrs] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [test, setTest] = useState<{ state: 'run' | 'done' | 'timeout'; result?: { success: boolean; response_ms?: number | null; error?: string | null; status_code?: number | null; detail?: string | null } } | null>(null)
@@ -142,6 +202,7 @@ function TargetForm({ initial, agents, onClose, onSaved }: { initial: Target | n
   }, [onClose])
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF(x => ({ ...x, [k]: v }))
+  const role = f.is_device ? 'device' : f.is_gateway && f.method === 'ping' ? 'gateway' : 'internet'
   const setOpt = (k: keyof TargetOptions, v: unknown) => setF(x => ({ ...x, options: { ...x.options, [k]: v } }))
   const payload = () => ({ ...f, options: cleanOptions(f), is_gateway: f.method === 'ping' && f.is_gateway })
 
@@ -210,6 +271,10 @@ function TargetForm({ initial, agents, onClose, onSaved }: { initial: Target | n
           <div className="field full"><label htmlFor="f_addr">{t('address')}</label>
             <input className={`input mono ${errs.address ? 'err' : ''}`} id="f_addr" value={f.address} onChange={e => set('address', e.target.value.trim())} placeholder={t(`addr_${f.method}` as DictKey)} />
             {errs.address && <span className="err-text">{errs.address}</span>}</div>
+          <div className="field full"><label>{t('role')}</label>
+            <Seg value={role} options={(f.method === 'ping' ? ['internet', 'gateway', 'device'] as const : ['internet', 'device'] as const).map(r => ({ v: r, label: t(`role_${r}`) }))}
+              onChange={r => setF(x => ({ ...x, is_gateway: r === 'gateway', is_device: r === 'device' }))} />
+            <span className="hint">{t(`role_${role}`.concat('_d') as DictKey)}</span></div>
           {num('interval_sec', t('interval'), t('intervalHint'), 10, 3600)}
           {num('timeout_ms', t('timeout'), undefined, 100, 60000)}
           {num('fail_threshold', t('failThreshold'), undefined, 1, 20)}
@@ -229,12 +294,6 @@ function TargetForm({ initial, agents, onClose, onSaved }: { initial: Target | n
             <div className="field"><label htmlFor="f_ds">{t('dnsServer')}</label>
               <input className="input mono" id="f_ds" value={f.options.dns_server ?? ''} placeholder="8.8.8.8" onChange={e => setOpt('dns_server', e.target.value.trim())} /><span className="hint">{t('dnsServerHint')}</span></div>
           </>}
-          {f.method === 'ping' && (
-            <label className="check full" style={{ alignItems: 'flex-start' }}>
-              <input type="checkbox" checked={f.is_gateway} onChange={e => set('is_gateway', e.target.checked)} style={{ marginTop: 3 }} />
-              <span>{t('gatewayFlag')}<br /><span className="muted" style={{ fontSize: 12 }}>{t('gatewayHint')}</span></span>
-            </label>
-          )}
         </div>
         {test && (
           <div className="test-res">
@@ -359,9 +418,10 @@ function AgentsTab() {
 type PublicSettings = {
   retention_days: number; timezone: string; language: Lang; cooldown_min: number
   telegram: { bot_token_masked: string | null; chat_id: string | null }
-  alerts: { down: boolean; recovery: boolean; slow: boolean; agent_offline: boolean }
+  alerts: { down: boolean; recovery: boolean; slow: boolean; agent_offline: boolean; device: boolean }
   summary: { enabled: boolean; frequency: string; every_hours: number; at: string; weekday: number; last_sent_at: string | null }
   quiet_hours: { enabled: boolean; from: string; to: string }
+  mute: { until: string | null; all: boolean }
 }
 
 function useSettings() {
@@ -420,7 +480,7 @@ function TelegramTab() {
   }
   const sum = s.summary, qh = s.quiet_hours
   const alertRows: [keyof PublicSettings['alerts'], DictKey, DictKey][] = [
-    ['down', 'a_down', 'a_down_d'], ['recovery', 'a_recovery', 'a_recovery_d'], ['slow', 'a_slow', 'a_slow_d'], ['agent_offline', 'a_agent_offline', 'a_agent_offline_d'],
+    ['down', 'a_down', 'a_down_d'], ['recovery', 'a_recovery', 'a_recovery_d'], ['slow', 'a_slow', 'a_slow_d'], ['agent_offline', 'a_agent_offline', 'a_agent_offline_d'], ['device', 'a_device', 'a_device_d'],
   ]
 
   return (
@@ -439,6 +499,8 @@ function TelegramTab() {
             <button className="btn" disabled={sending || !s.telegram.bot_token_masked || !s.telegram.chat_id} onClick={sendTest}><Icon name="send" />{t('sendTest')}</button>
           </div>
         </div></section>
+
+      <BotCommands configured={!!s.telegram.bot_token_masked && !!s.telegram.chat_id} />
 
       <section className="card"><div className="card-h"><h2>{t('alertTypes')}</h2></div>
         <div className="card-b" style={{ paddingTop: 4 }}>
@@ -476,6 +538,56 @@ function TelegramTab() {
           <div className="field"><label htmlFor="qt">{t('to')}</label><input className="input" type="time" id="qt" defaultValue={qh.to} onBlur={e => e.target.value && save({ quiet_hours: { to: e.target.value } })} /></div>
         </div></section>
     </>
+  )
+}
+
+const BOT_CMDS = ['status', 'targets', 'uptime', 'incidents', 'summary', 'test', 'mute', 'unmute', 'help'] as const
+
+/** Telegram bot commands: activate the webhook, show its state, clear /mute. */
+function BotCommands({ configured }: { configured: boolean }) {
+  const { t, lang } = useI18n()
+  const toast = useToast()
+  const [info, setInfo] = useState<{ active: boolean; url: string | null; last_error?: string | null; error?: string; mute?: { until: string | null; all: boolean } } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const load = useCallback(() => api<NonNullable<typeof info>>('/api/settings/telegram-webhook').then(setInfo).catch(() => setInfo({ active: false, url: null })), [])
+  useEffect(() => { if (configured) load() }, [configured, load])
+
+  async function toggle(on: boolean) {
+    setBusy(true)
+    try {
+      await api('/api/settings/telegram-webhook', { method: on ? 'POST' : 'DELETE' })
+      toast(on ? t('tgCmdsEnabled') : t('tgCmdsDisabled'))
+      await load()
+    } catch (x) { toast(t('tgCmdsErr', { e: (x as { data?: { error?: string } }).data?.error || (x as Error).message }), 'err') }
+    finally { setBusy(false) }
+  }
+  async function unmute() {
+    try { await api('/api/settings/telegram-webhook', { method: 'PATCH', json: { unmute: true } }); toast(t('saved')); load() }
+    catch (x) { toast(t('saveFailed', { e: (x as Error).message }), 'err') }
+  }
+
+  const mute = info?.mute?.until && Date.parse(info.mute.until) > Date.now() ? info.mute : null
+  return (
+    <section className="card">
+      <div className="card-h"><h2>{t('tgCmds')}</h2><span className="sub">{t('tgCmdsSub')}</span>
+        <div className="act">{configured && info && (info.active
+          ? <span className="pill up"><Icon name="check" />{t('tgCmdsOn')}</span>
+          : <span className="pill off"><Icon name="off" />{t('tgCmdsOff')}</span>)}</div></div>
+      <div className="card-b" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {!configured ? <p className="muted" style={{ margin: 0 }}>{t('tgCmdsNeed')}</p> : <>
+          {mute && <div className="banner"><Icon name="clock" /><span style={{ flex: 1 }}>{t('muteActive', { t: fmtDT(Date.parse(mute.until!), lang), all: mute.all ? t('bot_allSuffix') : '' })}</span>
+            <button className="btn sm" onClick={unmute}>{t('unmute')}</button></div>}
+          {info?.last_error && <div className="alert"><Icon name="alert" /><span>{info.last_error}</span></div>}
+          <div className="tbl-wrap"><table className="tbl"><tbody>
+            {BOT_CMDS.map(c => <tr key={c}><td className="mono" style={{ whiteSpace: 'nowrap' }}>/{c}</td><td className="muted">{t(`cmd_${c}` as DictKey)}</td></tr>)}
+          </tbody></table></div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button className="btn primary" disabled={busy} onClick={() => toggle(true)}><Icon name="bolt" />{t('tgCmdsEnable')}</button>
+            {info?.active && <button className="btn" disabled={busy} onClick={() => toggle(false)}>{t('tgCmdsDisable')}</button>}
+          </div>
+        </>}
+      </div>
+    </section>
   )
 }
 

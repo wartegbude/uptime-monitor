@@ -5,7 +5,7 @@ import { useI18n, useNow } from './providers'
 import { api, Icon, LocPill, methodIcon, Pill, Seg } from './ui'
 import { colorVar, ResponseChart, Sparkline } from './chart'
 import { fmtDT, fmtDTs, fmtDur, fmtMs, fmtPct, fmtTime, HOUR, DAY, methodLabel, ts } from '@/lib/format'
-import { incEnd, incStart, liveState, locationState, targetUptime, unionLen, uptimeBlocks } from '@/lib/uptime'
+import { incEnd, incStart, liveState, locationState, targetUptime, unionLen, uptimeBlocks, coreTargets } from '@/lib/uptime'
 import type { Agent, DashboardData, Incident, LogRow, SeriesPoint, Target } from '@/lib/types'
 import type { DictKey } from '@/lib/i18n'
 
@@ -159,19 +159,24 @@ function weightedAvg(series: SeriesPoint[]) {
 function Summary({ data, agents }: { data: DashboardData; agents: Agent[] }) {
   const { t, lang } = useI18n()
   const { from, to, now } = data
+  // external devices are monitored only: they are left out of the location totals
+  const core = coreTargets(data.targets)
+  const coreIds = new Set(core.map(x => x.id))
+  const coreInc = data.incidents.filter(i => i.kind === 'agent_offline' || (i.target_id != null && coreIds.has(i.target_id)))
   let down = 0, mon = 0, maxMon = 0
-  for (const tg of data.targets) { const r = targetUptime(tg, data.incidents, from, to, now); down += r.down; mon += r.monitored; maxMon = Math.max(maxMon, r.monitored) }
-  const ivs = data.incidents.filter(i => i.kind === 'target_down' || i.cause === 'internet')
+  for (const tg of core) { const r = targetUptime(tg, coreInc, from, to, now); down += r.down; mon += r.monitored; maxMon = Math.max(maxMon, r.monitored) }
+  const ivs = coreInc.filter(i => i.kind === 'target_down' || i.cause === 'internet')
     .map(i => [Math.max(from, incStart(i)), Math.min(to, incEnd(i, now))] as [number, number]).filter(x => x[1] > x[0])
   const downDur = unionLen(ivs)
   const span = maxMon
   const upPct = mon ? (1 - down / mon) * 100 : null
-  const avg = weightedAvg(data.series)
+  const avg = weightedAvg(data.series.filter(p => coreIds.has(p.target_id)))
   const states = agents.filter(a => a.status !== 'revoked').map(a => locationState(a, data.targets))
   const order = ['down', 'off', 'degraded', 'pending', 'ok']
   const worst = states.slice().sort((x, y) => order.indexOf(x) - order.indexOf(y))[0]
   const online = agents.filter(a => a.status === 'online').length
-  const n = data.incidents.length
+  const n = coreInc.length
+  const devs = data.targets.length - core.length
 
   return (
     <section className="summary" aria-label="Summary">
@@ -186,7 +191,7 @@ function Summary({ data, agents }: { data: DashboardData; agents: Agent[] }) {
         <div className="d">{n === 1 ? t('incident1') : t('incidentsN', { n })} {t('inRange')}</div></div>
       <div className="card stat"><span className="eyebrow">{t('avgResponse')}</span>
         <div className="v">{avg == null ? '–' : Math.round(avg)}<small>ms</small></div>
-        <div className="d">{data.targets.length} {t('targets').toLowerCase()}</div></div>
+        <div className="d">{core.length} {t('targets').toLowerCase()}{devs ? ` + ${devs} ${t('device')}` : ''}</div></div>
     </section>
   )
 }
@@ -198,7 +203,9 @@ function LocStrip({ data, agents }: { data: DashboardData; agents: Agent[] }) {
     <section className="loc-strip">
       {agents.filter(a => a.status !== 'revoked').map(a => {
         const st = locationState(a, data.targets)
-        const mine = data.targets.filter(x => x.agent_id === a.id && !x.paused)
+        const all = data.targets.filter(x => x.agent_id === a.id && !x.paused)
+        const mine = coreTargets(all)
+        const devDown = a.status === 'online' ? all.filter(x => x.is_device && x.state === 'down').length : 0
         const gw = mine.find(x => x.is_gateway)
         const ext = mine.filter(x => !x.is_gateway)
         let lan: 'ok' | 'bad' | 'unk' = 'unk', isp: 'ok' | 'bad' | 'unk' = 'unk'
@@ -213,7 +220,8 @@ function LocStrip({ data, agents }: { data: DashboardData; agents: Agent[] }) {
             <Icon name={a.status === 'online' ? 'server' : 'off'} />
             <div><div className="nm">{a.name} {a.host && <span className="muted mono" style={{ fontWeight: 400 }}>{a.host}</span>}</div>
               <div className="muted" style={{ fontSize: 12 }}>{t('lastHb', { t: a.last_heartbeat_at ? t('ago', { t: fmtDur(now - ts(a.last_heartbeat_at)!, lang) }) : t('never') })}</div></div>
-            <div className="diag"><LocPill s={st} /><D k={lan} ok="lanOk" bad="lanBad" label="LAN" /><D k={isp} ok="ispOk" bad="ispBad" label="ISP" /></div>
+            <div className="diag"><LocPill s={st} /><D k={lan} ok="lanOk" bad="lanBad" label="LAN" /><D k={isp} ok="ispOk" bad="ispBad" label="ISP" />
+              {devDown > 0 && <span className="warn"><Icon name="x" />{t('devicesDown', { n: devDown })}</span>}</div>
           </div>
         )
       })}
@@ -247,7 +255,7 @@ function TargetCards({ data, showLoc }: { data: DashboardData; showLoc: boolean 
           <Link key={tg.id} href={`/targets/${tg.id}`} className={`card tcard st-${st}`} style={{ color: 'inherit', textDecoration: 'none' }}>
             <div className="row1"><Icon name={methodIcon(tg)} /><span className="tn">{tg.name}</span><Pill s={st} /></div>
             <div className="addr"><span className="chip">{methodLabel(tg.method)}</span><span className="mono">{tg.address}</span>
-              {tg.is_gateway && <span className="chip">{t('gateway')}</span>}{showLoc && ag && <span>· {ag.name}</span>}</div>
+              {tg.is_gateway && <span className="chip">{t('gateway')}</span>}{tg.is_device && <span className="chip">{t('device')}</span>}{showLoc && ag && <span>· {ag.name}</span>}</div>
             <div className="row3">
               <div className="kv"><b>{fmtPct(up == null ? null : up * 100)}</b><span>{t('uptime')}</span></div>
               <div className="kv"><b>{fmtMs(tg.last_response_ms)}</b><span>{t('last')}</span></div>

@@ -25,6 +25,7 @@ export const targetInput = z.object({
   slow_threshold_ms: z.number().int().min(1).max(600000),
   options: targetOptions.default({}),
   is_gateway: z.boolean().default(false),
+  is_device: z.boolean().default(false),
   paused: z.boolean().default(false),
 }).superRefine((v, ctx) => {
   const ok = v.method === 'http'
@@ -32,6 +33,7 @@ export const targetInput = z.object({
     : ipv4Re.test(v.address) || (v.address.includes(':') && ipv6Re.test(v.address)) || hostRe.test(v.address)
   if (!ok) ctx.addIssue({ code: 'custom', path: ['address'], message: 'invalid_address' })
   if (v.is_gateway && v.method !== 'ping') ctx.addIssue({ code: 'custom', path: ['is_gateway'], message: 'gateway_must_be_ping' })
+  if (v.is_gateway && v.is_device) ctx.addIssue({ code: 'custom', path: ['is_device'], message: 'gateway_or_device' })
 })
 export type TargetInput = z.infer<typeof targetInput>
 
@@ -48,7 +50,7 @@ export const settingsPatch = z.object({
   timezone: z.string().min(1).max(60).refine(tz => { try { new Intl.DateTimeFormat('en', { timeZone: tz }); return true } catch { return false } }).optional(),
   language: z.enum(['en', 'id']).optional(),
   telegram: z.object({ bot_token: z.string().trim().max(200).optional(), chat_id: z.string().trim().max(40).regex(/^-?\d+$|^@\w+$|^$/).optional() }).optional(),
-  alerts: z.object({ down: z.boolean(), recovery: z.boolean(), slow: z.boolean(), agent_offline: z.boolean() }).partial().optional(),
+  alerts: z.object({ down: z.boolean(), recovery: z.boolean(), slow: z.boolean(), agent_offline: z.boolean(), device: z.boolean() }).partial().optional(),
   summary: z.object({
     enabled: z.boolean(), frequency: z.enum(['1h', '6h', 'daily', 'weekly', 'custom']), every_hours: z.number().int().min(1).max(168),
     at: hhmm, weekday: z.number().int().min(0).max(6),

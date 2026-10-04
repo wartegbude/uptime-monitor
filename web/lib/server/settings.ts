@@ -7,10 +7,11 @@ export interface AppSettings {
   timezone: string
   language: Lang
   telegram: { bot_token_enc: string | null; chat_id: string | null }
-  alerts: { down: boolean; recovery: boolean; slow: boolean; agent_offline: boolean }
+  alerts: { down: boolean; recovery: boolean; slow: boolean; agent_offline: boolean; device: boolean }
   summary: { enabled: boolean; frequency: '1h' | '6h' | 'daily' | 'weekly' | 'custom'; every_hours: number; at: string; weekday: number; last_sent_at: string | null }
   quiet_hours: { enabled: boolean; from: string; to: string }
   cooldown_min: number
+  mute: { until: string | null; all: boolean }
 }
 
 const DEFAULTS: AppSettings = {
@@ -18,10 +19,11 @@ const DEFAULTS: AppSettings = {
   timezone: 'Asia/Jakarta',
   language: 'en',
   telegram: { bot_token_enc: null, chat_id: null },
-  alerts: { down: true, recovery: true, slow: true, agent_offline: true },
+  alerts: { down: true, recovery: true, slow: true, agent_offline: true, device: true },
   summary: { enabled: true, frequency: 'daily', every_hours: 12, at: '08:00', weekday: 1, last_sent_at: null },
   quiet_hours: { enabled: false, from: '22:00', to: '06:00' },
   cooldown_min: 5,
+  mute: { until: null, all: false },
 }
 
 export async function getSettings(): Promise<AppSettings> {
