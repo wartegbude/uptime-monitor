@@ -13,9 +13,10 @@ import (
 const (
 	heartbeatEvery = 30 * time.Second // PRD AG-09
 	configEvery    = 60 * time.Second
-	delayedAfter   = 60 * time.Second // results older than this when sent came from the offline buffer
-	sendEvery      = 10 * time.Second // batch live results to keep serverless invocations low
-	maxBackoff     = 15 * time.Second // keep reconnect fast so recovery is reported quickly
+	delayedAfter   = 60 * time.Second       // results older than this when sent came from the offline buffer
+	sendEvery      = 10 * time.Second       // batch live results to keep serverless invocations low
+	maxBackoff     = 15 * time.Second       // keep reconnect fast so recovery is reported quickly
+	drainEvery     = 250 * time.Millisecond // pace between buffered batches: ≤4 req/s, under the cloud's rate limit
 )
 
 type Agent struct {
@@ -158,7 +159,7 @@ func (a *Agent) senderLoop(ctx context.Context) {
 			resp, err = a.api.Ingest(req)
 			if err == nil {
 				a.buf.Done(seg)
-				wait = 100 * time.Millisecond // drain quickly
+				wait = drainEvery
 			} else if isRejected(err) {
 				// The cloud is reachable but refuses this batch. Retrying it would block the
 				// buffer (and every heartbeat) forever, so drop it and carry on.
@@ -166,7 +167,7 @@ func (a *Agent) senderLoop(ctx context.Context) {
 				a.buf.Done(seg)
 				a.markReachable()
 				backoff = 2 * time.Second
-				wait = 100 * time.Millisecond
+				wait = drainEvery
 				goto sleep
 			}
 		case time.Since(lastContact) >= heartbeatEvery:
@@ -175,7 +176,12 @@ func (a *Agent) senderLoop(ctx context.Context) {
 			goto sleep
 		}
 
-		if err != nil {
+		if d, ok := rateLimited(err); ok {
+			// the cloud is up and asked us to slow down: not an outage
+			log.Printf("rate limited by cloud, waiting %s", d)
+			a.markReachable()
+			wait = d
+		} else if err != nil {
 			if a.offlineSince.IsZero() {
 				a.offlineSince = time.Now()
 				log.Printf("cloud unreachable, buffering results: %v", err)

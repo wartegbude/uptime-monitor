@@ -28,8 +28,8 @@ Alert dikirim dari cloud, bukan dari agent. Jadi waktu internet di lokasi putus,
 ### 1. Supabase
 1. Buat project baru di [supabase.com](https://supabase.com).
 2. Database → Extensions: aktifkan **pg_cron** dan **pg_net**.
-3. SQL Editor → jalankan isi `supabase/migrations/0001_init.sql`, lalu `0002_telegram_bot.sql`, lalu `0003_external_device.sql`, lalu `0004_target_order.sql`, lalu `0005_notification_claim.sql`.
-   Sudah deploy versi lama? Cukup jalankan `0005_notification_claim.sql` (mencegah alert Telegram terkirim dobel).
+3. SQL Editor → jalankan isi `supabase/migrations/0001_init.sql`, lalu `0002_telegram_bot.sql`, lalu `0003_external_device.sql`, lalu `0004_target_order.sql`, lalu `0005_notification_claim.sql`, lalu `0006_agent_rate_limit.sql`.
+   Sudah deploy versi lama? Cukup jalankan `0005_notification_claim.sql` (mencegah alert Telegram terkirim dobel) dan `0006_agent_rate_limit.sql` (rate limit endpoint agent).
 4. Catat **Project URL** dan **service_role key** (Project Settings → API).
 
 ### 2. GitHub (untuk binary agent)
@@ -191,6 +191,7 @@ Edit `supabase/setup_cron.sql` (isi URL Vercel dan `CRON_SECRET`), lalu jalankan
 - **Jam tenang** menahan alert lambat dan summary sampai jam tenang selesai. Alert down/recovery/offline tetap jalan.
 - **Retensi**: hasil cek mentah dihapus tiap malam (03:00 WIB) sesuai setting. Grafik 7–30 hari memakai rollup per jam (di-refresh tiap 5 menit).
 - **Dashboard** update otomatis tiap 30 detik (polling), plus saat tab dibuka lagi.
+- **Rate limit agent**: maks 600 request/menit per agent, dan 30 request/menit per IP untuk token salah/di-revoke. Lewat batas → `429` + `Retry-After`; agent menunggu lalu lanjut, tidak dianggap offline.
 - **Tes sekarang** dijalankan oleh agent di lokasinya (bukan dari cloud), hasil muncul dalam ±30 detik.
 
 ## Jenis target

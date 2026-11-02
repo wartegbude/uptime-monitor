@@ -29,6 +29,38 @@ export function unionLen(ivs: Iv[]): number {
   return tot
 }
 
+/** Parts of ivs not covered by any of cuts. */
+export function minus(ivs: Iv[], cuts: Iv[]): Iv[] {
+  const cs = cuts.slice().sort((x, y) => x[0] - y[0])
+  const out: Iv[] = []
+  for (const [a, b] of ivs) {
+    let s = a
+    for (const [ca, cb] of cs) {
+      if (cb <= s || ca >= b) continue
+      if (ca > s) out.push([s, ca])
+      s = Math.max(s, cb)
+      if (s >= b) break
+    }
+    if (s < b) out.push([s, b])
+  }
+  return out
+}
+
+/**
+ * Down time of a whole location (any core target down, or internet cut while the agent was offline),
+ * minus the "no data" stretches. incs = that location's incidents.
+ */
+export function locationDownMs(incs: Incident[], a: number, b: number, now: number): number {
+  const down: Iv[] = [], nod: Iv[] = []
+  for (const i of incs) {
+    const c = clip([incStart(i), incEnd(i, now)], a, b)
+    if (!c) continue
+    if (i.kind === 'target_down' || (i.kind === 'agent_offline' && i.cause === 'internet')) down.push(c)
+    else if (i.kind === 'agent_offline') nod.push(c)
+  }
+  return unionLen(minus(down, nod))
+}
+
 export function downIntervals(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway'> & { is_device?: boolean }, incs: Incident[], a: number, b: number, now: number): Iv[] {
   const out: Iv[] = []
   for (const i of incs) {
@@ -57,8 +89,10 @@ export function targetUptime(t: Pick<Target, 'id' | 'agent_id' | 'is_gateway' | 
   const start = Math.max(a, Date.parse(t.created_at))
   const end = Math.min(b, now)
   if (end <= start) return { down: 0, monitored: 0, up: null }
-  const nod = unionLen(noDataIntervals(t, incs, start, end, now))
-  const down = unionLen(downIntervals(t, incs, start, end, now))
+  const nodIvs = noDataIntervals(t, incs, start, end, now)
+  const nod = unionLen(nodIvs)
+  // a target incident still open while the server was off: that stretch is "no data", not down
+  const down = unionLen(minus(downIntervals(t, incs, start, end, now), nodIvs))
   const monitored = Math.max(0, end - start - nod)
   return { down, monitored, up: monitored > 0 ? Math.max(0, 1 - down / monitored) : null }
 }
