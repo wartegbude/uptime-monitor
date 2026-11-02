@@ -107,6 +107,16 @@ func (a *Agent) handleContact(r *ContactResp) {
 	}
 }
 
+// markReachable ends the current outage window, if any.
+func (a *Agent) markReachable() {
+	if a.offlineSince.IsZero() {
+		return
+	}
+	log.Printf("cloud reachable again after %s", time.Since(a.offlineSince).Round(time.Second))
+	a.lastOutage = [2]time.Time{a.offlineSince, time.Now()}
+	a.offlineSince = time.Time{}
+}
+
 // senderLoop ships buffered results oldest-first and sends heartbeats when idle.
 // One goroutine does both, so after an outage the buffered failures always reach the
 // cloud before the heartbeat that ends the outage (lets the cloud tell "internet down"
@@ -149,6 +159,15 @@ func (a *Agent) senderLoop(ctx context.Context) {
 			if err == nil {
 				a.buf.Done(seg)
 				wait = 100 * time.Millisecond // drain quickly
+			} else if isRejected(err) {
+				// The cloud is reachable but refuses this batch. Retrying it would block the
+				// buffer (and every heartbeat) forever, so drop it and carry on.
+				log.Printf("ingest rejected, dropping %d buffered results from %s: %v", len(results), seg, err)
+				a.buf.Done(seg)
+				a.markReachable()
+				backoff = 2 * time.Second
+				wait = 100 * time.Millisecond
+				goto sleep
 			}
 		case time.Since(lastContact) >= heartbeatEvery:
 			resp, err = a.api.Heartbeat(req)
@@ -167,11 +186,7 @@ func (a *Agent) senderLoop(ctx context.Context) {
 				wait = time.Minute
 			}
 		} else {
-			if !a.offlineSince.IsZero() {
-				log.Printf("cloud reachable again after %s", time.Since(a.offlineSince).Round(time.Second))
-				a.lastOutage = [2]time.Time{a.offlineSince, time.Now()}
-				a.offlineSince = time.Time{}
-			}
+			a.markReachable()
 			backoff = 2 * time.Second
 			lastContact = time.Now()
 			a.handleContact(resp)

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 )
 
 // Target is one check as configured in the dashboard.
@@ -69,6 +70,8 @@ func RunCheck(t Target) (r Result) {
 		if p := recover(); p != nil {
 			r.Success, r.Error, r.ErrorKind = false, fmt.Sprint("panic: ", p), "other"
 		}
+		// keep text fields well under the cloud's limits (long TXT records, verbose errors)
+		r.Error, r.Detail = clipText(r.Error, maxTextLen), clipText(r.Detail, maxTextLen)
 	}()
 	switch t.Method {
 	case "http":
@@ -104,6 +107,20 @@ func classify(err error) string {
 		return "conn"
 	}
 	return "other"
+}
+
+const maxTextLen = 500
+
+// clipText cuts s to at most n bytes without splitting a UTF-8 character.
+func clipText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	s = s[:n]
+	for len(s) > 0 && !utf8.ValidString(s) {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 func short(err error) string {

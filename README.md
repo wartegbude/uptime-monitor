@@ -28,7 +28,8 @@ Alert dikirim dari cloud, bukan dari agent. Jadi waktu internet di lokasi putus,
 ### 1. Supabase
 1. Buat project baru di [supabase.com](https://supabase.com).
 2. Database → Extensions: aktifkan **pg_cron** dan **pg_net**.
-3. SQL Editor → jalankan isi `supabase/migrations/0001_init.sql`, lalu `0002_telegram_bot.sql`, lalu `0003_external_device.sql`, lalu `0004_target_order.sql`.
+3. SQL Editor → jalankan isi `supabase/migrations/0001_init.sql`, lalu `0002_telegram_bot.sql`, lalu `0003_external_device.sql`, lalu `0004_target_order.sql`, lalu `0005_notification_claim.sql`.
+   Sudah deploy versi lama? Cukup jalankan `0005_notification_claim.sql` (mencegah alert Telegram terkirim dobel).
 4. Catat **Project URL** dan **service_role key** (Project Settings → API).
 
 ### 2. GitHub (untuk binary agent)
