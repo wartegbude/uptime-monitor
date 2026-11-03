@@ -8,6 +8,13 @@ export const metadata: Metadata = {
   title: 'Uptime Monitor',
   description: 'Internet uptime for every location you watch',
   manifest: '/manifest.webmanifest',
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: '16x16 32x32 48x48' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    apple: { url: '/apple-touch-icon.png', sizes: '180x180' },
+  },
 }
 export const viewport: Viewport = {
   width: 'device-width', initialScale: 1, viewportFit: 'cover',
