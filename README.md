@@ -88,7 +88,11 @@ File release dan image di repo private butuh login, jadi `curl` dari server dapa
   git tag v1.0.0 && git push origin v1.0.0
   ```
   (hapus juga Release `v1.0.0` di halaman Releases kalau sudah terbuat). Atau lebih gampang naikkan versi: `v1.0.1`.
-- Update agent nanti: push tag baru, lalu di server jalankan lagi perintah install yang sama. Token lama tetap dipakai kalau kamu ambil dari `/etc/uptime-agent/agent.env`.
+- Update agent nanti: push tag baru, lalu di tiap server cukup jalankan satu perintah ini (tanpa token):
+  ```bash
+  curl -fsSL https://APP.vercel.app/install.sh | sudo bash
+  ```
+  Installer otomatis memakai token yang sudah ada: dari `/etc/uptime-agent/agent.env` (systemd) atau dari container `uptime-agent` (Docker: image di-pull ulang, container dibuat ulang dengan env dan volume yang sama). Buffer hasil cek tetap aman.
 
 ### 3. Vercel
 

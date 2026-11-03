@@ -1,14 +1,20 @@
 import 'server-only'
 
-/** Agent installer served at /install.sh. __API_URL__ and __RELEASE_BASE__ are filled per request. */
+/**
+ * Agent installer served at /install.sh. __API_URL__ and __RELEASE_BASE__ are filled per request.
+ * Note: this is a JS template string, so the bash below must not use dollar-brace expansions.
+ */
 export const INSTALL_SCRIPT = String.raw`#!/usr/bin/env bash
 # Uptime Monitor agent installer (Ubuntu/Debian with systemd)
-# Usage: curl -fsSL __API_URL__/install.sh | sudo bash -s -- --token ag_xxx
+# Install: curl -fsSL __API_URL__/install.sh | sudo bash -s -- --token ag_xxx
+# Update:  curl -fsSL __API_URL__/install.sh | sudo bash
+#          (no token: reuses the token of the agent already installed, systemd or Docker)
 set -euo pipefail
 
 API_URL="__API_URL__"
 RELEASE_BASE="__RELEASE_BASE__"
 TOKEN=""
+ENV_FILE=/etc/uptime-agent/agent.env
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -19,8 +25,36 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-[ -n "$TOKEN" ] || { echo "Missing --token" >&2; exit 1; }
-[ "$(id -u)" -eq 0 ] || { echo "Run as root: ... | sudo bash -s -- --token ..." >&2; exit 1; }
+[ "$(id -u)" -eq 0 ] || { echo "Run as root: curl -fsSL $API_URL/install.sh | sudo bash" >&2; exit 1; }
+
+# Docker update: an existing uptime-agent container, no systemd install, no token given.
+if [ -z "$TOKEN" ] && [ ! -f "$ENV_FILE" ] && command -v docker >/dev/null && docker inspect uptime-agent >/dev/null 2>&1; then
+  IMAGE="$(docker inspect -f '{{.Config.Image}}' uptime-agent)"
+  ENVS="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' uptime-agent | grep '^UPTIME_' || true)"
+  echo "$ENVS" | grep -q '^UPTIME_TOKEN=' || { echo "Container uptime-agent has no UPTIME_TOKEN. Run with --token." >&2; exit 1; }
+  echo "→ Updating Docker agent ($IMAGE)"
+  docker pull "$IMAGE"
+  DENV="$(mktemp)"
+  chmod 600 "$DENV"
+  trap 'rm -f "$DENV"' EXIT
+  echo "$ENVS" > "$DENV"
+  docker rm -f uptime-agent >/dev/null
+  docker run -d --name uptime-agent --restart unless-stopped --network host --cap-add NET_RAW \
+    -v uptime-agent:/var/lib/uptime-agent --env-file "$DENV" "$IMAGE" >/dev/null
+  sleep 3
+  docker logs --tail 5 uptime-agent 2>&1 || true
+  echo
+  echo "✓ Docker agent updated. Logs: docker logs -f uptime-agent"
+  exit 0
+fi
+
+# systemd update: reuse the token already on this server.
+if [ -z "$TOKEN" ] && [ -f "$ENV_FILE" ]; then
+  TOKEN="$(sed -n 's/^UPTIME_TOKEN=//p' "$ENV_FILE")"
+  [ -n "$TOKEN" ] && echo "→ Updating existing agent (token from $ENV_FILE)"
+fi
+
+[ -n "$TOKEN" ] || { echo "Missing --token (no installed agent found to update)" >&2; exit 1; }
 command -v systemctl >/dev/null || { echo "systemd not found. Use the Docker command instead." >&2; exit 1; }
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 
@@ -87,5 +121,5 @@ systemctl enable --now uptime-agent
 sleep 2
 systemctl --no-pager --lines=5 status uptime-agent || true
 echo
-echo "✓ Agent installed. Logs: journalctl -u uptime-agent -f"
+echo "✓ Agent $(/usr/local/bin/uptime-agent --version) installed. Logs: journalctl -u uptime-agent -f"
 `
