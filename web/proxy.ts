@@ -15,5 +15,6 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|login|setup|install\\.sh|_next|favicon|icon|manifest).*)'],
+  // icons must load without a session (login page, iOS home screen)
+  matcher: ['/((?!api|login|setup|install\\.sh|_next|favicon|icon|apple-touch-icon|manifest).*)'],
 }
