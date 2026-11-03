@@ -1,6 +1,7 @@
 package main
 
 import (
+	"hash/fnv"
 	"log"
 	"reflect"
 	"sync"
@@ -55,14 +56,21 @@ func (s *Scheduler) Apply(targets []Target) {
 
 func (s *Scheduler) StopAll() { s.Apply(nil) }
 
+// firstDelay spreads first runs over up to 5 s (or the interval, if shorter), stable per target,
+// so many targets do not fire at the same instant. Hashes the ID: UUIDs all have the same length.
+func firstDelay(id string, iv time.Duration) time.Duration {
+	spanMs := uint64(min(iv, 5*time.Second) / time.Millisecond)
+	if spanMs == 0 {
+		return 0
+	}
+	h := fnv.New32a()
+	h.Write([]byte(id))
+	return time.Duration(uint64(h.Sum32())%spanMs) * time.Millisecond
+}
+
 func (s *Scheduler) loop(j *job) {
 	iv := time.Duration(j.t.IntervalSec) * time.Second
-	// spread the first run so many targets do not fire at the same instant
-	first := time.Duration(int64(len(j.t.ID)*7919)%int64(iv/time.Millisecond+1)) * time.Millisecond
-	if first > 5*time.Second {
-		first = first % (5 * time.Second)
-	}
-	timer := time.NewTimer(first)
+	timer := time.NewTimer(firstDelay(j.t.ID, iv))
 	defer timer.Stop()
 	for {
 		select {

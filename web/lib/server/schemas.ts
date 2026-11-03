@@ -67,6 +67,9 @@ export const accountInput = z.object({
   new_password: z.string().max(200).optional().refine(v => !v || v.length >= 8, 'too_short'),
 })
 
+/** Long text is cut, not rejected: one oversized field must never make an agent's whole batch fail. */
+const clipped = (n: number) => z.string().transform(s => s.slice(0, n))
+
 export const resultInput = z.object({
   target_id: z.string().uuid(),
   checked_at: z.string().max(40),
@@ -74,13 +77,17 @@ export const resultInput = z.object({
   response_ms: z.number().nonnegative().max(1e7).nullable().optional(),
   status_code: z.number().int().nullable().optional(),
   packet_loss: z.number().min(0).max(100).nullable().optional(),
-  error: z.string().max(1000).nullable().optional(),
-  error_kind: z.string().max(20).nullable().optional(),
-  detail: z.string().max(1000).nullable().optional(),
+  error: clipped(1000).nullable().optional(),
+  error_kind: clipped(20).nullable().optional(),
+  detail: clipped(1000).nullable().optional(),
   delayed: z.boolean().optional(),
 })
+
 export const ingestInput = z.object({
-  results: z.array(resultInput).max(2000).default([]),
+  // Each result is validated on its own and invalid ones are dropped. A 400 for the whole batch
+  // would make the agent resend the same batch forever and block its offline buffer.
+  results: z.array(z.unknown()).max(2000).default([])
+    .transform(rs => rs.flatMap(r => { const p = resultInput.safeParse(r); return p.success ? [p.data] : [] })),
   offline_events: z.array(z.object({ start: z.string().max(40), end: z.string().max(40) })).max(100).optional(),
   host: z.string().max(100).optional(),
   version: z.string().max(40).optional(),

@@ -4,7 +4,8 @@ import { ZodError } from 'zod'
 import { currentUser } from './session'
 
 export class HttpError extends Error {
-  constructor(public status: number, message: string) { super(message) }
+  /** retryAfterSec is sent as the Retry-After header (for 429). */
+  constructor(public status: number, message: string, public retryAfterSec?: number) { super(message) }
 }
 
 export const json = (data: unknown, status = 200) => NextResponse.json(data, { status })
@@ -15,7 +16,11 @@ export function handle<A extends unknown[]>(fn: (...args: A) => Promise<Response
     try {
       return await fn(...args)
     } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status)
+      if (e instanceof HttpError) {
+        const res = json({ error: e.message }, e.status)
+        if (e.retryAfterSec) res.headers.set('Retry-After', String(e.retryAfterSec))
+        return res
+      }
       if (e instanceof ZodError) return json({ error: 'invalid_input', issues: e.issues.map(i => ({ path: i.path.join('.'), message: i.message })) }, 400)
       console.error(e)
       return json({ error: 'server_error' }, 500)

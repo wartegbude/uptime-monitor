@@ -8,7 +8,7 @@ import { sendTelegram } from './telegram'
 import { buildSummary, summaryPeriodMs } from './tick'
 import { translate, type DictKey } from '../i18n'
 import { DAY, HOUR, MIN, fmtDT, fmtDur, fmtMs, fmtPct, methodLabel } from '../format'
-import { incEnd, incStart, locationState, targetUptime, unionLen } from '../uptime'
+import { incEnd, incStart, locationDownMs, locationState, targetUptime } from '../uptime'
 import type { Agent, Incident, Target } from '../types'
 
 /** Secret Telegram echoes in X-Telegram-Bot-Api-Secret-Token; derived so no extra env var is needed. */
@@ -134,8 +134,7 @@ export async function runCommand(cmd: string, arg: string, s: AppSettings, chatI
         let down = 0, mon = 0
         for (const x of mine) { const u = targetUptime(x, incs, from, now, now); down += u.down; mon += u.monitored }
         const ai = incs.filter(i => i.agent_id === a.id && incEnd(i, now) > from && (i.kind === 'agent_offline' || (i.target_id != null && ids.has(i.target_id))))
-        const downDur = unionLen(ai.filter(i => i.kind === 'target_down' || i.cause === 'internet')
-          .map(i => [Math.max(from, incStart(i)), Math.min(now, incEnd(i, now))] as [number, number]).filter(v => v[1] > v[0]))
+        const downDur = locationDownMs(ai, from, now, now)
         const pct = mon ? fmtPct((1 - down / mon) * 100) : t('tgNone')
         return `<b>${h(a.name)}</b> — ${pct}\n   ${t('tgDur')} ${fmtDur(downDur, lang)} · ${ai.length} ${t('tgIncidents')}`
       })

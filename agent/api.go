@@ -7,11 +7,47 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
 
 var ErrUnauthorized = errors.New("token rejected (revoked or wrong) — create a new token in Settings → Agents")
+
+// HTTPError is a non-2xx answer from the cloud.
+type HTTPError struct {
+	Status     int
+	RetryAfter time.Duration // from the Retry-After header, 0 if absent
+	Msg        string
+}
+
+func (e *HTTPError) Error() string { return e.Msg }
+
+// rateLimited returns how long to wait when the cloud answered 429.
+func rateLimited(err error) (time.Duration, bool) {
+	var he *HTTPError
+	if !errors.As(err, &he) || he.Status != http.StatusTooManyRequests {
+		return 0, false
+	}
+	if he.RetryAfter > 0 {
+		return min(he.RetryAfter, 5*time.Minute), true
+	}
+	return 10 * time.Second, true
+}
+
+// isRejected reports whether the cloud refused the request content itself (4xx other than
+// auth, timeout and rate limit). Sending the same body again would fail the same way.
+func isRejected(err error) bool {
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return false
+	}
+	switch he.Status {
+	case 401, 403, 404, 408, 425, 429:
+		return false
+	}
+	return he.Status >= 400 && he.Status < 500
+}
 
 // API is the agent's only network peer: the dashboard, over outbound HTTPS (PRD AG-03).
 type API struct {
@@ -52,7 +88,8 @@ func (a *API) do(method, path string, in, out any) error {
 		return ErrUnauthorized
 	}
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("%s %s: HTTP %d %s", method, path, resp.StatusCode, strings.TrimSpace(string(data[:min(len(data), 200)])))
+		ra, _ := strconv.Atoi(resp.Header.Get("Retry-After"))
+		return &HTTPError{Status: resp.StatusCode, RetryAfter: time.Duration(ra) * time.Second, Msg: fmt.Sprintf("%s %s: HTTP %d %s", method, path, resp.StatusCode, strings.TrimSpace(string(data[:min(len(data), 200)])))}
 	}
 	if out != nil {
 		return json.Unmarshal(data, out)

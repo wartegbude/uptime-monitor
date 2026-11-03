@@ -112,11 +112,25 @@ const KIND_TOGGLE: Record<string, keyof AppSettings['alerts'] | null> = {
 }
 const NON_CRITICAL = new Set(['slow', 'summary'])
 
+/**
+ * Takes due notifications for this run. claim_notifications (migration 0005) marks them 'sending'
+ * atomically, so overlapping runs (cron + after-ingest) never send the same row twice.
+ */
+async function claimDue(now: number): Promise<NotificationRow[]> {
+  const r = await db().rpc('claim_notifications', { p_limit: 100 })
+  if (r.error?.code === 'PGRST202') {
+    // migration 0005 not applied yet: keep alerts flowing the old (unclaimed) way
+    console.error('claim_notifications missing: run supabase/migrations/0005_notification_claim.sql')
+    return must(await db().from('notifications').select('*').eq('status', 'pending')
+      .lte('next_attempt_at', new Date(now).toISOString()).order('id').limit(100)) as NotificationRow[]
+  }
+  return (must(r) as NotificationRow[]).sort((a, b) => a.id - b.id)
+}
+
 /** Sends pending notifications. Groups down/recovery per location. Retries with backoff. */
 export async function dispatch(): Promise<{ sent: number; failed: number; skipped: number }> {
   const now = Date.now()
-  const pending = must(await db().from('notifications').select('*').eq('status', 'pending')
-    .lte('next_attempt_at', new Date(now).toISOString()).order('id').limit(100)) as NotificationRow[]
+  const pending = await claimDue(now)
   const res = { sent: 0, failed: 0, skipped: 0 }
   if (!pending.length) return res
 
@@ -145,7 +159,7 @@ export async function dispatch(): Promise<{ sent: number; failed: number; skippe
     groups.set(key, [...(groups.get(key) || []), n])
   }
   await mark(skip, { status: 'skipped', error: 'alert_type_disabled' })
-  await mark(postpone, { next_attempt_at: new Date(now + hold).toISOString() })
+  await mark(postpone, { status: 'pending', next_attempt_at: new Date(now + hold).toISOString() })
   await mark(muted, { status: 'skipped', error: 'muted' })
   res.skipped += skip.length + muted.length
 
@@ -156,7 +170,7 @@ export async function dispatch(): Promise<{ sent: number; failed: number; skippe
     const retries = Math.max(...g.map(x => x.retries)) + 1
     if (retries >= 6) { await mark(ids, { status: 'failed', retries, error: r.error }); res.failed += ids.length; continue }
     const wait = r.retryAfter ? r.retryAfter * 1000 : Math.min(30, 2 ** retries) * 60_000 / 2
-    await mark(ids, { retries, error: r.error, next_attempt_at: new Date(Date.now() + wait).toISOString() })
+    await mark(ids, { status: 'pending', retries, error: r.error, next_attempt_at: new Date(Date.now() + wait).toISOString() })
   }
   return res
 }

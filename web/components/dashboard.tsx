@@ -1,11 +1,11 @@
 'use client'
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useI18n, useNow } from './providers'
 import { api, Icon, LocPill, methodIcon, Pill, Seg } from './ui'
 import { colorVar, ResponseChart, Sparkline } from './chart'
 import { fmtDT, fmtDTs, fmtDur, fmtMs, fmtPct, fmtTime, HOUR, DAY, methodLabel, ts } from '@/lib/format'
-import { incEnd, incStart, liveState, locationState, targetUptime, unionLen, uptimeBlocks, coreTargets } from '@/lib/uptime'
+import { incStart, liveState, locationDownMs, locationState, targetUptime, uptimeBlocks, coreTargets } from '@/lib/uptime'
 import type { Agent, DashboardData, Incident, LogRow, SeriesPoint, Target } from '@/lib/types'
 import type { DictKey } from '@/lib/i18n'
 
@@ -165,9 +165,7 @@ function Summary({ data, agents }: { data: DashboardData; agents: Agent[] }) {
   const coreInc = data.incidents.filter(i => i.kind === 'agent_offline' || (i.target_id != null && coreIds.has(i.target_id)))
   let down = 0, mon = 0, maxMon = 0
   for (const tg of core) { const r = targetUptime(tg, coreInc, from, to, now); down += r.down; mon += r.monitored; maxMon = Math.max(maxMon, r.monitored) }
-  const ivs = coreInc.filter(i => i.kind === 'target_down' || i.cause === 'internet')
-    .map(i => [Math.max(from, incStart(i)), Math.min(to, incEnd(i, now))] as [number, number]).filter(x => x[1] > x[0])
-  const downDur = unionLen(ivs)
+  const downDur = locationDownMs(coreInc, from, to, now)
   const span = maxMon
   const upPct = mon ? (1 - down / mon) * 100 : null
   const avg = weightedAvg(data.series.filter(p => coreIds.has(p.target_id)))
