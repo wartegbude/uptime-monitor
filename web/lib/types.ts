@@ -37,6 +37,8 @@ export interface Target {
   is_gateway: boolean
   /** external device: monitored only, never affects location status or uptime */
   is_device: boolean
+  /** access point: an external device shown with its own label and icon (always is_device) */
+  is_ap: boolean
   /** manual order within a location (Settings → Targets) */
   sort_order: number
   paused: boolean

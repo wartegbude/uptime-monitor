@@ -93,7 +93,9 @@ export async function runCommand(cmd: string, arg: string, s: AppSettings, chatI
           sub = [lan, isp, hb ? t('bot_hb', { t: ago(hb) }) : null].filter(Boolean).join(' · ')
           const down = mine.filter(x => x.state === 'down').map(x => x.name)
           if (down.length && st !== 'down') sub += `\n   🔴 ${h(down.join(', '))}`
-          const devDown = all.filter(x => x.is_device && x.state === 'down').map(x => x.name)
+          const apDown = all.filter(x => x.is_ap && x.state === 'down').map(x => x.name)
+          if (apDown.length) sub += `\n   📶 ${t('ap')}: ${h(apDown.join(', '))}`
+          const devDown = all.filter(x => x.is_device && !x.is_ap && x.state === 'down').map(x => x.name)
           if (devDown.length) sub += `\n   🟠 ${t('device')}: ${h(devDown.join(', '))}`
         }
         return `${STATE_ICON[st]} <b>${h(a.name)}</b> — ${t(`loc_${st}` as DictKey)}\n   ${sub}`
@@ -114,7 +116,7 @@ export async function runCommand(cmd: string, arg: string, s: AppSettings, chatI
           const val = x.paused ? t('st_paused') : off ? t('st_off')
             : x.state === 'down' ? t('bot_downSince', { t: x.state_since ? fmtDT(Date.parse(x.state_since), lang, tz) : '–' })
             : fmtMs(x.last_response_ms)
-          return `${icon} ${h(x.name)} · ${methodLabel(x.method)} <code>${h(x.address)}</code> · ${val}`
+          return `${icon} ${h(x.name)}${x.is_ap ? ` · 📶 ${t('ap')}` : ''} · ${methodLabel(x.method)} <code>${h(x.address)}</code> · ${val}`
         })
         return `<b>${h(a.name)}</b>\n${rows.join('\n')}`
       }).filter(Boolean)

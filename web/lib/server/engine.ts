@@ -56,7 +56,7 @@ export async function ingest(agent: Agent, results: ResultIn[]) {
   const agentWasOffline = agent.status === 'offline'
 
   const base = (t: Target) => ({ agent_id: agent.id, target_id: t.id })
-  const info = (t: Target) => ({ target_name: t.name, agent_name: agent.name, method_label: methodLabel(t.method), address: t.address, is_device: !!t.is_device })
+  const info = (t: Target) => ({ target_name: t.name, agent_name: agent.name, method_label: methodLabel(t.method), address: t.address, is_device: !!t.is_device, is_ap: !!t.is_ap })
 
   function locationCause(t: Target): string | null {
     if (t.is_gateway || t.is_device) return null // a device failing says nothing about the internet

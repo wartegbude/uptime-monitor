@@ -26,6 +26,7 @@ export const targetInput = z.object({
   options: targetOptions.default({}),
   is_gateway: z.boolean().default(false),
   is_device: z.boolean().default(false),
+  is_ap: z.boolean().default(false),
   paused: z.boolean().default(false),
 }).superRefine((v, ctx) => {
   const ok = v.method === 'http'
@@ -34,6 +35,7 @@ export const targetInput = z.object({
   if (!ok) ctx.addIssue({ code: 'custom', path: ['address'], message: 'invalid_address' })
   if (v.is_gateway && v.method !== 'ping') ctx.addIssue({ code: 'custom', path: ['is_gateway'], message: 'gateway_must_be_ping' })
   if (v.is_gateway && v.is_device) ctx.addIssue({ code: 'custom', path: ['is_device'], message: 'gateway_or_device' })
+  if (v.is_ap && !v.is_device) ctx.addIssue({ code: 'custom', path: ['is_ap'], message: 'ap_must_be_device' })
 })
 export type TargetInput = z.infer<typeof targetInput>
 
