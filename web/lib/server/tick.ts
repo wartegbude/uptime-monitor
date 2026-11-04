@@ -103,7 +103,7 @@ export async function buildSummary(s: AppSettings, from: number, to: number): Pr
     const lines = ts.map(x => {
       const st = stats.get(x.id)
       const avg = st?.avg ?? null, max = st?.max ?? null
-      const dev = x.is_device ? ` (${t('device')}, ${t('uptime').toLowerCase()} ${fmtPct((targetUptime(x, incs, from, to, to).up ?? 0) * 100)})` : ''
+      const dev = x.is_device ? ` (${t(x.is_ap ? 'ap' : 'device')}, ${t('uptime').toLowerCase()} ${fmtPct((targetUptime(x, incs, from, to, to).up ?? 0) * 100)})` : ''
       return `  • ${esc(x.name)}${dev}: ${t('avg').toLowerCase()} ${fmtMs(avg)}, ${t('max').toLowerCase()} ${fmtMs(max)}`
     })
     return [head, ...lines].join('\n')

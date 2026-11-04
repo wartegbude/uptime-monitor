@@ -19,6 +19,7 @@ Agent kecil di tiap lokasi menjalankan cek dan mengirim hasilnya ke cloud. Dashb
 - **Cek**: HTTP/HTTPS (status code, redirect, method), ping ICMP (latency + packet loss), DNS (A, AAAA, CNAME, MX, TXT, server DNS sendiri). Interval, timeout, dan threshold diatur per target.
 - **Diagnosis LAN vs ISP**: tandai router sebagai target *gateway*, dan dashboard bisa membedakan "jaringan lokal bermasalah" dari "ISP putus".
 - **Perangkat eksternal**: pantau CCTV, NAS, printer, atau alat IoT tanpa memengaruhi status internet lokasi.
+- **Access point**: pantau AP WiFi dengan label dan ikon sendiri, juga tanpa memengaruhi status internet lokasi.
 - **Alert Telegram**: down, recovery, response lambat, agent offline/online (dengan penyebab: internet putus atau server mati), dan summary berkala. Target yang down bersamaan digabung jadi satu pesan, ada cooldown flapping, jam tenang, dan `/mute`.
 - **Bot Telegram**: `/status`, `/uptime`, `/incidents`, `/test`, `/mute`, dan lainnya.
 - **Tahan internet putus**: hasil cek disimpan di disk selama offline lalu dikirim berurutan setelah online. Tidak ada data yang hilang.
@@ -71,6 +72,7 @@ GitHub Actions mem-build binary agent, lalu server lokal tinggal mengunduhnya le
    | `0004_target_order.sql` | Urutan target |
    | `0005_notification_claim.sql` | Mencegah alert Telegram terkirim dobel |
    | `0006_agent_rate_limit.sql` | Rate limit endpoint agent |
+   | `0007_access_point.sql` | Jenis target access point |
 
 4. Catat **Project URL** dan **service_role / Secret key** (Project Settings → API).
 
@@ -205,6 +207,7 @@ Lalu hapus atau revoke agentnya di Setting → Agent.
 | --- | --- | --- |
 | **Internet** (default) | Koneksi keluar: `8.8.8.8`, `google.com`, website | Semua down → **Internet putus**. Sebagian down/lambat → **Terganggu** |
 | **Gateway / router** | Router lokal (khusus ping) | Untuk diagnosis LAN vs ISP |
+| **Access point** | AP WiFi (ping ke IP AP, atau HTTP ke halaman admin-nya) | **Tidak berpengaruh**, sama seperti perangkat eksternal. Label `AP` dan ikon WiFi di dashboard, alert 🟠 `DOWN · ACCESS POINT`, dan baris 📶 di `/status` |
 | **Perangkat eksternal** | CCTV, NAS, printer, server lain, IoT | **Tidak berpengaruh**. Tetap punya status, uptime, grafik, log, dan alert sendiri (🟠 `DOWN · PERANGKAT`) |
 
 Alert perangkat bisa dimatikan terpisah di Setting → Telegram. Urutan target diatur di Setting → Target (geser ⠿ di desktop, tombol ▲▼ di HP) dan dipakai di dashboard, `/targets`, dan summary.

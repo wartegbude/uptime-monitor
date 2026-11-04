@@ -253,7 +253,7 @@ function TargetCards({ data, showLoc }: { data: DashboardData; showLoc: boolean 
           <Link key={tg.id} href={`/targets/${tg.id}`} className={`card tcard st-${st}`} style={{ color: 'inherit', textDecoration: 'none' }}>
             <div className="row1"><Icon name={methodIcon(tg)} /><span className="tn">{tg.name}</span><Pill s={st} /></div>
             <div className="addr"><span className="chip">{methodLabel(tg.method)}</span><span className="mono">{tg.address}</span>
-              {tg.is_gateway && <span className="chip">{t('gateway')}</span>}{tg.is_device && <span className="chip">{t('device')}</span>}{showLoc && ag && <span>· {ag.name}</span>}</div>
+              {tg.is_gateway && <span className="chip">{t('gateway')}</span>}{tg.is_device && <span className="chip">{t(tg.is_ap ? 'ap' : 'device')}</span>}{showLoc && ag && <span>· {ag.name}</span>}</div>
             <div className="row3">
               <div className="kv"><b>{fmtPct(up == null ? null : up * 100)}</b><span>{t('uptime')}</span></div>
               <div className="kv"><b>{fmtMs(tg.last_response_ms)}</b><span>{t('last')}</span></div>

@@ -70,8 +70,8 @@ export function LocPill({ s }: { s: LocState }) {
   return <span className={`pill ${cls}`}><Icon name={icon} />{t(key as never)}</span>
 }
 
-export const methodIcon = (t: Pick<Target, 'method' | 'is_gateway'> & { is_device?: boolean }): IconName =>
-  t.is_gateway ? 'router' : t.is_device ? 'chip' : t.method === 'http' ? 'monitor' : t.method === 'ping' ? 'pulse' : 'server'
+export const methodIcon = (t: Pick<Target, 'method' | 'is_gateway'> & { is_device?: boolean; is_ap?: boolean }): IconName =>
+  t.is_gateway ? 'router' : t.is_ap ? 'wifi' : t.is_device ? 'chip' : t.method === 'http' ? 'monitor' : t.method === 'ping' ? 'pulse' : 'server'
 
 export function Switch({ checked, onChange, label, id }: { checked: boolean; onChange: (v: boolean) => void; label: string; id?: string }) {
   return (

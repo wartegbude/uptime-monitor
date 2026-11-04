@@ -143,7 +143,7 @@ function TargetsTab() {
                       <span><span className="chip">{methodLabel(tg.method)}</span> <span className="mono">{tg.address}</span></span>
                       <span>{t('every', { s: fmtDur(tg.interval_sec * 1000, lang) })}</span>
                       <span>{tg.fail_threshold}× → DOWN</span><span>&gt; {tg.slow_threshold_ms} ms</span>
-                      {tg.is_gateway && <span className="chip">{t('gateway')}</span>}{tg.is_device && <span className="chip">{t('device')}</span>}
+                      {tg.is_gateway && <span className="chip">{t('gateway')}</span>}{tg.is_device && <span className="chip">{t(tg.is_ap ? 'ap' : 'device')}</span>}
                     </div>
                   </div>
                   <div className="acts">
@@ -174,7 +174,7 @@ function TargetsTab() {
 
 type FormState = {
   agent_id: string; name: string; method: Method; address: string; interval_sec: number; timeout_ms: number
-  fail_threshold: number; slow_threshold_ms: number; is_gateway: boolean; is_device: boolean; options: TargetOptions
+  fail_threshold: number; slow_threshold_ms: number; is_gateway: boolean; is_device: boolean; is_ap: boolean; options: TargetOptions
 }
 const SLOW_DEFAULT: Record<Method, number> = { http: 1000, ping: 100, dns: 200 }
 const TIMEOUT_DEFAULT: Record<Method, number> = { http: 5000, ping: 2000, dns: 2000 }
@@ -189,8 +189,8 @@ function TargetForm({ initial, agents, onClose, onSaved }: { initial: Target | n
   const { t } = useI18n()
   const toast = useToast()
   const [f, setF] = useState<FormState>(() => initial
-    ? { agent_id: initial.agent_id, name: initial.name, method: initial.method, address: initial.address, interval_sec: initial.interval_sec, timeout_ms: initial.timeout_ms, fail_threshold: initial.fail_threshold, slow_threshold_ms: initial.slow_threshold_ms, is_gateway: initial.is_gateway, is_device: !!initial.is_device, options: initial.options || {} }
-    : { agent_id: agents[0]?.id || '', name: '', method: 'ping', address: '8.8.8.8', interval_sec: 30, timeout_ms: 2000, fail_threshold: 2, slow_threshold_ms: 100, is_gateway: false, is_device: false, options: {} })
+    ? { agent_id: initial.agent_id, name: initial.name, method: initial.method, address: initial.address, interval_sec: initial.interval_sec, timeout_ms: initial.timeout_ms, fail_threshold: initial.fail_threshold, slow_threshold_ms: initial.slow_threshold_ms, is_gateway: initial.is_gateway, is_device: !!initial.is_device, is_ap: !!initial.is_ap, options: initial.options || {} }
+    : { agent_id: agents[0]?.id || '', name: '', method: 'ping', address: '8.8.8.8', interval_sec: 30, timeout_ms: 2000, fail_threshold: 2, slow_threshold_ms: 100, is_gateway: false, is_device: false, is_ap: false, options: {} })
   const [errs, setErrs] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [test, setTest] = useState<{ state: 'run' | 'done' | 'timeout'; result?: { success: boolean; response_ms?: number | null; error?: string | null; status_code?: number | null; detail?: string | null } } | null>(null)
@@ -202,7 +202,7 @@ function TargetForm({ initial, agents, onClose, onSaved }: { initial: Target | n
   }, [onClose])
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setF(x => ({ ...x, [k]: v }))
-  const role = f.is_device ? 'device' : f.is_gateway && f.method === 'ping' ? 'gateway' : 'internet'
+  const role = f.is_ap ? 'ap' : f.is_device ? 'device' : f.is_gateway && f.method === 'ping' ? 'gateway' : 'internet'
   const setOpt = (k: keyof TargetOptions, v: unknown) => setF(x => ({ ...x, options: { ...x.options, [k]: v } }))
   const payload = () => ({ ...f, options: cleanOptions(f), is_gateway: f.method === 'ping' && f.is_gateway })
 
@@ -272,8 +272,8 @@ function TargetForm({ initial, agents, onClose, onSaved }: { initial: Target | n
             <input className={`input mono ${errs.address ? 'err' : ''}`} id="f_addr" value={f.address} onChange={e => set('address', e.target.value.trim())} placeholder={t(`addr_${f.method}` as DictKey)} />
             {errs.address && <span className="err-text">{errs.address}</span>}</div>
           <div className="field full"><label>{t('role')}</label>
-            <Seg value={role} options={(f.method === 'ping' ? ['internet', 'gateway', 'device'] as const : ['internet', 'device'] as const).map(r => ({ v: r, label: t(`role_${r}`) }))}
-              onChange={r => setF(x => ({ ...x, is_gateway: r === 'gateway', is_device: r === 'device' }))} />
+            <Seg value={role} options={(f.method === 'ping' ? ['internet', 'gateway', 'ap', 'device'] as const : ['internet', 'ap', 'device'] as const).map(r => ({ v: r, label: t(`role_${r}`) }))}
+              onChange={r => setF(x => ({ ...x, is_gateway: r === 'gateway', is_device: r === 'device' || r === 'ap', is_ap: r === 'ap' }))} />
             <span className="hint">{t(`role_${role}`.concat('_d') as DictKey)}</span></div>
           {num('interval_sec', t('interval'), t('intervalHint'), 10, 3600)}
           {num('timeout_ms', t('timeout'), undefined, 100, 60000)}

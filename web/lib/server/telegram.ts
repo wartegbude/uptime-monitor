@@ -64,7 +64,8 @@ export function buildMessage(group: NotificationRow[], s: AppSettings): string {
   const n = group[0], p = n.payload
   const dt = (iso: string) => fmtDTs(Date.parse(iso), lang, tz)
   const dev = !!p.is_device
-  const devTag = dev ? ` · ${t('tgDevice')}` : ''
+  // a grouped down/recovery mixes APs and other devices, so the AP tag needs every one to be an AP
+  const devTag = dev ? ` · ${t(group.every(g => g.payload.is_ap) ? 'tgAp' : 'tgDevice')}` : ''
   switch (n.kind) {
     case 'down': {
       const loc = p.agent_name
