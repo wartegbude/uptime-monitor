@@ -27,12 +27,14 @@ export function usePolling<T>(url: string | null, ms = 30_000) {
   const [data, setData] = useState<T | null>(null)
   const [err, setErr] = useState(false)
   const [updated, setUpdated] = useState(0)
+  // URL the shown data belongs to: lets the page mark old data while a new filter loads
+  const [dataUrl, setDataUrl] = useState<string | null>(null)
   const urlRef = useRef(url)
   urlRef.current = url
   const load = useCallback(async () => {
     const u = urlRef.current
     if (!u) return
-    try { const d = await api<T>(u); if (urlRef.current === u) { setData(d); setErr(false); setUpdated(Date.now()) } }
+    try { const d = await api<T>(u); if (urlRef.current === u) { setData(d); setDataUrl(u); setErr(false); setUpdated(Date.now()) } }
     catch { setErr(true) }
   }, [])
   useEffect(() => {
@@ -42,7 +44,7 @@ export function usePolling<T>(url: string | null, ms = 30_000) {
     document.addEventListener('visibilitychange', v)
     return () => { clearInterval(i); document.removeEventListener('visibilitychange', v) }
   }, [url, ms, load])
-  return { data, err, updated, reload: load }
+  return { data, err, updated, reload: load, stale: data != null && dataUrl !== url }
 }
 
 export function LiveIndicator({ updated, err }: { updated: number; err: boolean }) {
@@ -82,7 +84,7 @@ export function Dashboard() {
   useEffect(() => { if (prefs) try { localStorage.setItem(LS_KEY, JSON.stringify(prefs)) } catch { /* empty */ } }, [prefs])
 
   const q = prefs ? `${rangeQuery(prefs.r)}${prefs.loc !== 'all' ? `&loc=${prefs.loc}` : ''}` : null
-  const { data, err, updated } = usePolling<DashboardData>(q ? `/api/dashboard?${q}` : null)
+  const { data, err, updated, stale } = usePolling<DashboardData>(q ? `/api/dashboard?${q}` : null)
 
   if (!prefs) return null
   const showLoc = prefs.loc === 'all'
@@ -102,7 +104,7 @@ export function Dashboard() {
       {!data ? <Skeleton /> : data.agents.length === 0 ? (
         <div className="card empty"><Icon name="server" /><span>{t('emptyAgents')}</span><Link className="btn primary" href="/settings?tab=agents">{t('goSettings')}</Link></div>
       ) : (
-        <>
+        <div className={`dash-body${stale ? ' stale' : ''}`} aria-busy={stale}>
           {agentsSel.filter(a => a.status === 'offline' && a.last_heartbeat_at).map(a => (
             <div className="banner" role="status" key={a.id}><Icon name="off" /><div>
               <b>{t('agentOfflineBanner', { loc: a.name, t: fmtDT(ts(a.last_heartbeat_at)!, lang), d: t('ago', { t: fmtDur(data.now - ts(a.last_heartbeat_at)!, lang) }) })}</b><br />
@@ -135,7 +137,7 @@ export function Dashboard() {
               <IncidentList incidents={data.incidents} targets={data.targets} agents={data.agents} now={data.now} />
             </section>
           </div>
-        </>
+        </div>
       )}
     </>
   )

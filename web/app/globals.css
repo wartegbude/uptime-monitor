@@ -93,6 +93,8 @@ svg.i{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-widt
 .desk-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lang-btn{font-family:var(--f-mono);font-size:12px;font-weight:600}
 .content{max-width:1280px;margin:0 auto;padding-inline:16px;padding-block:18px 28px;display:flex;flex-direction:column;gap:18px}
+.dash-body{display:flex;flex-direction:column;gap:18px;transition:opacity .2s}
+.dash-body.stale{opacity:.55}
 .bottomnav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(3,1fr);padding-bottom:env(safe-area-inset-bottom,0px)}
 .bottomnav button{border:0;background:transparent;display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 4px 8px;font-size:11.5px;font-weight:500;color:var(--muted);cursor:pointer;min-height:56px}
 .bottomnav button[aria-current="page"]{color:var(--accent)}
