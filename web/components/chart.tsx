@@ -29,6 +29,7 @@ export function ResponseChart(props: Props) {
   const p = props
   const el = useRef<HTMLDivElement>(null)
   const chart = useRef<ECharts | null>(null)
+  const shown = useRef<{ from: number; span: number } | null>(null)
   const { lang, t } = useI18n()
   const { resolvedTheme } = useTheme()
 
@@ -85,8 +86,15 @@ export function ResponseChart(props: Props) {
       ...(p.slowLine ? [{ name: t('slowThreshold'), type: 'line' as const, data: [], markLine: { silent: true, symbol: 'none', lineStyle: { color: css('--slow'), type: 'dashed' as const }, label: { color: css('--slow'), formatter: `${p.slowLine} ms`, position: 'insideEndTop' as const }, data: [{ yAxis: p.slowLine }] } }] : []),
     ]
 
-    if (!full) { c.setOption({ series }, { replaceMerge: ['series'] }); return }
     const span = p.to - p.from
+    // a new range (not just the 30 s poll sliding the window) needs a full render: axis bounds, labels, zoom reset
+    const last = shown.current
+    if (!full && last && Math.abs(span - last.span) <= last.span * 0.01 && Math.abs(p.from - last.from) <= span * 0.05) {
+      c.setOption({ xAxis: { min: p.from, max: p.to }, series }, { replaceMerge: ['series'] })
+      shown.current = { from: p.from, span }
+      return
+    }
+    shown.current = { from: p.from, span }
     c.setOption({
       textStyle: { fontFamily: 'IBM Plex Sans, system-ui, sans-serif', color: muted },
       grid: { left: 8, right: 16, top: 58, bottom: 64, containLabel: true },
